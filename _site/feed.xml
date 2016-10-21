@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8"?><?xml-stylesheet type="text/xml" href="http://localhost:4000/feed.xslt.xml"?><feed xmlns="http://www.w3.org/2005/Atom"><generator uri="http://jekyllrb.com" version="3.3.0">Jekyll</generator><link href="http://localhost:4000/feed.xml" rel="self" type="application/atom+xml" /><link href="http://localhost:4000/" rel="alternate" type="text/html" /><updated>2016-10-21T11:33:08+01:00</updated><id>http://localhost:4000//</id><title type="html">Music and Linked Data rants</title><subtitle>Rants and ravings on music, linked data, and other things. Views my own.
+</subtitle><entry><title type="html">Music, match chains, and madness</title><link href="http://localhost:4000/virtuoso/sparql/bug/2016/10/14/hello.html" rel="alternate" type="text/html" title="Music, match chains, and madness" /><published>2016-10-14T15:58:56+01:00</published><updated>2016-10-14T15:58:56+01:00</updated><id>http://localhost:4000/virtuoso/sparql/bug/2016/10/14/hello</id><content type="html" xml:base="http://localhost:4000/virtuoso/sparql/bug/2016/10/14/hello.html">&lt;p&gt;This was a fun one to debug.&lt;/p&gt;
+
+&lt;p&gt;So, SPARQL is a query language that lets you define patterns to be matched against graphs of data expressed as RDF. Property paths are a super useful part of SPARQL that allow you define graph traversals in a very concise way. They are simple, powerful, and reminiscent of regular expressions.&lt;/p&gt;
+
+&lt;p&gt;Imagine a graph structure that expresses “#matches” relationships between different entities. Perhaps each node being “#matched” is associated with complementary information about some shared entity in the world—say, a composer of musical works.&lt;/p&gt;
+
+&lt;p&gt;Perhaps the nodes come from different datasets. One might be a library catalogue describing books on the composer; another, broadcast information from a radio programme presenting the composer’s works; and another still, a corpus of symbolic music encodings of his or her compositions.&lt;/p&gt;
+
+&lt;p&gt;A friendly musicologist with a penchant for semantic alignment has come along and kindly specified the appropriate &amp;lt;#matches&amp;gt; relationships for us. Now we can find out which radio episode features a recording of this encoded composition, and request high-resolution images of the score in the book in the library!&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&quot;http://localhost:4000/assets/virtuoso-bug-graph-example.svg&quot; alt=&quot;Simple match chain graph&quot; /&gt;&lt;/p&gt;
+
+&lt;p&gt;Which we can express as RDF (using the awesome Turtle syntax) as:&lt;/p&gt;
+
+&lt;figure class=&quot;highlight&quot;&gt;&lt;pre&gt;&lt;code class=&quot;language-turtle&quot; data-lang=&quot;turtle&quot;&gt;&amp;lt;#a&amp;gt; &amp;lt;#matches&amp;gt; &amp;lt;#m&amp;gt; .
+&amp;lt;#b&amp;gt; &amp;lt;#matches&amp;gt; &amp;lt;#m&amp;gt; . 
+&amp;lt;#b&amp;gt; &amp;lt;#matches&amp;gt; &amp;lt;#n&amp;gt; . 
+&amp;lt;#c&amp;gt; &amp;lt;#matches&amp;gt; &amp;lt;#n&amp;gt; . &lt;/code&gt;&lt;/pre&gt;&lt;/figure&gt;
+
+&lt;p&gt;As you can see, &amp;lt;#a&amp;gt;, &amp;lt;#b&amp;gt;, and &amp;lt;#c&amp;gt; are all connected along a sequence of matches (&amp;lt;#m&amp;gt; and &amp;lt;#n&amp;gt;), forming a &lt;em&gt;match chain&lt;/em&gt;. Thousands of such chains might exist in our triplestore database. We can make use of the interconnections to extract all of the entities associated with any given entity, using the following SPARQL query:&lt;/p&gt;
+
+&lt;figure class=&quot;highlight&quot;&gt;&lt;pre&gt;&lt;code class=&quot;language-sparql&quot; data-lang=&quot;sparql&quot;&gt;SELECT ?uri { 
+   GRAPH &amp;lt;#matchDecisions&amp;gt; { 
+      &amp;lt;#a&amp;gt; (&amp;lt;#matches&amp;gt;/^&amp;lt;#matches&amp;gt;)* ?uri .
+   }
+}     &lt;/code&gt;&lt;/pre&gt;&lt;/figure&gt;
+
+&lt;p&gt;This query looks into the &amp;lt;#matchDecisions&amp;gt; named graph, and selects all entities (bound to the ``?uri’’ variable) that are zero or more &amp;lt;#matches&amp;gt; hops away from the given entity &amp;lt;#a&amp;gt;. So the query will return &amp;lt;#a&amp;gt;, which is zero hops away from itself; &amp;lt;#b&amp;gt;, as &amp;lt;#a&amp;gt; &amp;lt;#matches&amp;gt; the same node (&amp;lt;#m&amp;gt;) as &amp;lt;#b&amp;gt; &amp;lt;#matches&amp;gt;; and &amp;lt;#c&amp;gt;, as &amp;lt;#a&amp;gt; &amp;lt;#matches&amp;gt; a node &amp;lt;#matched&amp;gt; by an entity (&amp;lt;#b&amp;gt;) that also &amp;lt;#matches&amp;gt; a node (&amp;lt;#n&amp;gt;) matched by &amp;lt;#c&amp;gt;.&lt;/p&gt;
+
+&lt;p&gt;So far, so good.&lt;/p&gt;
+
+&lt;p&gt;Now, what happens if many musicologists are providing us with matches? We could store them all in the same place (the &amp;lt;#matchDecisions&amp;gt; named graph in the SPARQL query above). But then, we have no way of telling apart the decisions made by one musicologist from another’s. It turns out that such match decisions are far from straightforward, and musicologists will occasionally disagree with one another on whether or not two entities should form a match; this may be down to ambiguities in the data, or to scholarly disagreements, such as suspected misattributions of particular works. To solve this, we store each musicologist’s decisions in their very own, individual named graph. So the accomplished musicology experts Bob and Jane each get their own place in the triplestore; e.g. &amp;lt;#BobsMatchDecisions&amp;gt; and &amp;lt;#JanesMatchDecisions&amp;gt;.&lt;/p&gt;
+
+&lt;p&gt;We can decide which of these experts to trust in our query by binding their graph’s name to a variable, and using that variable to specify the graph:&lt;/p&gt;
+
+&lt;figure class=&quot;highlight&quot;&gt;&lt;pre&gt;&lt;code class=&quot;language-sparql&quot; data-lang=&quot;sparql&quot;&gt;BIND(&amp;lt;#JanesMatchDecisions&amp;gt; as ?matchGraph).
+
+SELECT ?uri { 
+   GRAPH ?matchGraph { 
+      &amp;lt;#a&amp;gt; (&amp;lt;#matches&amp;gt;/^&amp;lt;#matches&amp;gt;)* ?uri .
+   }
+}     &lt;/code&gt;&lt;/pre&gt;&lt;/figure&gt;
+
+&lt;p&gt;This query ought to work exactly like the previous one, returning &amp;lt;#a&amp;gt;, &amp;lt;#b&amp;gt;, and &amp;lt;#c&amp;gt; (assuming that they are indeed specified by Jane as matches, as in the turtle triples above). However, it turns out that &lt;a href=&quot;http://github.com/openlink/virtuoso-opensource/&quot;&gt;Virtuoso&lt;/a&gt;, our triplestore of choice, treats zero-length edges in property paths strangely when the graph name is supplied by a bound variable. Rather than &amp;lt;#a&amp;gt;, &amp;lt;#b&amp;gt;, and &amp;lt;#c&amp;gt;, the query returns &amp;lt;#b&amp;gt;, &amp;lt;#c&amp;gt;, and &amp;lt;#c&amp;gt;. Coming to that conclusion took several hours of headscratching — I’m very confused as to why supplying the graph name as a variable should result in this subtly different behaviour. The &lt;a href=&quot;https://github.com/openlink/virtuoso-opensource/issues/590&quot;&gt;bug has been reported&lt;/a&gt;, and is currently being looked into by the developers. In the meantime I thought it’d be a fun thing to report as a first post to this blog — perhaps I can save somebody else the confusion!&lt;/p&gt;</content><summary type="html">This was a fun one to debug.</summary></entry></feed>
